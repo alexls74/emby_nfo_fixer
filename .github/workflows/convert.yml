@@ -1,0 +1,23 @@
+name: Convert Markdown to HTML
+on:
+  workflow_dispatch:
+
+jobs:
+  convert:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Convert README.md
+        uses: bsars/markdown-to-html-with-github-style@v1
+        with:
+          source: README.md
+          output: readme.html
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: readme-html-file
+          path: readme.html
+          retention-days: 1

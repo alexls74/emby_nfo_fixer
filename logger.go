@@ -98,8 +98,8 @@ func (l *Logger) Changed(
 	l.hasChanged = true
 
 	var details []string
-	if movie.LastMovedCredits > 0 || movie.LastMovedDirectors > 0 {
-		details = append(details, fmt.Sprintf("Перемещено: credits: %d, director: %d", movie.LastMovedCredits, movie.LastMovedDirectors))
+	if movie.MovedCredits > 0 || movie.MovedDirectors > 0 {
+		details = append(details, fmt.Sprintf("Перемещено: credits: %d, director: %d", movie.MovedCredits, movie.MovedDirectors))
 	}
 	if movie.PremieredDate != "" {
 		details = append(details, fmt.Sprintf("Добавлен <premiered>: %s", movie.PremieredDate))

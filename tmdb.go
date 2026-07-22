@@ -13,6 +13,12 @@ import (
 
 const configFileName = "emby_nfo_fixer.conf"
 
+type Config struct {
+	TmdbToken  string
+	EmbyURL    string
+	EmbyApiKey string
+}
+
 type TMDBClient struct {
 	token      string
 	httpClient *http.Client
@@ -21,6 +27,69 @@ type TMDBClient struct {
 
 type tmdbMovieResponse struct {
 	ReleaseDate string `json:"release_date"`
+}
+
+func getConfigPath() string {
+	execPath, err := os.Executable()
+	if err != nil {
+		execPath = "."
+	}
+	execDir := filepath.Dir(execPath)
+	return filepath.Join(execDir, configFileName)
+}
+
+func LoadConfig() (*Config, error) {
+	configPath := getConfigPath()
+
+	cfg := &Config{}
+
+	file, err := os.Open(configPath)
+	if err != nil {
+		return cfg, err
+	}
+	defer file.Close()
+
+	scanner := bufio.NewScanner(file)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if strings.HasPrefix(line, "#") || line == "" {
+			continue
+		}
+
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) == 2 {
+			key := strings.TrimSpace(parts[0])
+			val := strings.TrimSpace(parts[1])
+
+			switch key {
+			case "TMDB_TOKEN":
+				cfg.TmdbToken = val
+			case "EMBY_URL":
+				cfg.EmbyURL = val
+			case "EMBY_API_KEY":
+				cfg.EmbyApiKey = val
+			}
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return cfg, fmt.Errorf("ошибка чтения строк %s: %w", configFileName, err)
+	}
+
+	return cfg, nil
+}
+
+func SaveConfig(cfg *Config) error {
+	configPath := getConfigPath()
+
+	content := fmt.Sprintf(
+		"TMDB_TOKEN = %s\nEMBY_URL = %s\nEMBY_API_KEY = %s\n",
+		cfg.TmdbToken,
+		cfg.EmbyURL,
+		cfg.EmbyApiKey,
+	)
+
+	return os.WriteFile(configPath, []byte(content), 0644)
 }
 
 // checkTokenValid делает тестовый запрос к TMDB
@@ -54,13 +123,12 @@ func checkTokenValid(client *http.Client, token string) error {
 func promptForToken(httpClient *http.Client) string {
 	reader := bufio.NewReader(os.Stdin)
 
-	// По умолчанию N (при нажатии Enter — отказ)
 	fmt.Print("Файл конфигурации не найден. Хотите настроить TMDB API токен сейчас? (y/N): ")
 	answer, _ := reader.ReadString('\n')
 	answer = strings.ToLower(strings.TrimSpace(answer))
 
 	if answer != "y" && answer != "yes" && answer != "д" && answer != "да" {
-		fmt.Println("Интеграция с TMDB пропущена. Создан пустой конфигурационный файл.")
+		fmt.Println("Интеграция с TMDB пропущена.")
 		return ""
 	}
 
@@ -78,14 +146,12 @@ func promptForToken(httpClient *http.Client) string {
 		if err := checkTokenValid(httpClient, token); err != nil {
 			fmt.Printf("❌ Ошибка: %v\n", err)
 
-			// По умолчанию Y (при нажатии Enter — повторить попытку)
 			fmt.Print("Попробовать ввести снова? (Y/n): ")
 			retry, _ := reader.ReadString('\n')
 			retry = strings.ToLower(strings.TrimSpace(retry))
 
-			// Если пользователь явно ввёл 'n', 'no', 'н' или 'нет' — выходим
 			if retry == "n" || retry == "no" || retry == "н" || retry == "нет" {
-				fmt.Println("Интеграция с TMDB пропущена. Создан пустой конфигурационный файл.")
+				fmt.Println("Интеграция с TMDB пропущена.")
 				return ""
 			}
 		} else {
@@ -95,76 +161,51 @@ func promptForToken(httpClient *http.Client) string {
 	}
 }
 
-// getOrInitToken читает токен из конфига рядом с бинарником.
-// Если файла нет — запрашивает интерактивно или создает шаблон.
-func getOrInitToken(httpClient *http.Client) (string, error) {
-	execPath, err := os.Executable()
-	if err != nil {
-		execPath = "."
-	}
-	execDir := filepath.Dir(execPath)
-	configPath := filepath.Join(execDir, configFileName)
-
-	// Если файла нет — интерактивно запрашиваем и создаем
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
-		token := promptForToken(httpClient)
-
-		content := fmt.Sprintf("TMDB_TOKEN = %s\n", token)
-		_ = os.WriteFile(configPath, []byte(content), 0644)
-
-		if token == "" {
-			return "", fmt.Errorf("токен не задан при создании %s", configFileName)
-		}
-		return token, nil
-	}
-
-	// Читаем файл, если он уже существовал
-	file, err := os.Open(configPath)
-	if err != nil {
-		return "", fmt.Errorf("ошибка чтения %s: %w", configFileName, err)
-	}
-	defer file.Close()
-
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
-		}
-
-		if strings.HasPrefix(line, "TMDB_TOKEN") {
-			parts := strings.SplitN(line, "=", 2)
-			if len(parts) == 2 {
-				return strings.TrimSpace(parts[1]), nil
-			}
-		}
-	}
-
-	// Проверка ошибки чтения сканнера после завершения цикла
-	if err := scanner.Err(); err != nil {
-		return "", fmt.Errorf("ошибка чтения строк %s: %w", configFileName, err)
-	}
-
-	return "", nil
-}
-
 func NewTMDBClient() (*TMDBClient, error) {
 	httpClient := &http.Client{
 		Timeout: 10 * time.Second,
 	}
 
-	token, err := getOrInitToken(httpClient)
+	configPath := getConfigPath()
+
+	var cfg *Config
+	var err error
+
+	// Если конфиг не существует, запускаем мастер настройки
+	if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
+		token := promptForToken(httpClient)
+
+		var embyURL, embyKey string
+		fmt.Print("Хотите настроить автоматическое сканирование Emby? (y/N): ")
+		reader := bufio.NewReader(os.Stdin)
+		embyAns, _ := reader.ReadString('\n')
+		embyAns = strings.ToLower(strings.TrimSpace(embyAns))
+
+		if embyAns == "y" || embyAns == "yes" || embyAns == "д" || embyAns == "да" {
+			embyURL, embyKey = PromptForEmbyInteractive()
+		}
+
+		cfg = &Config{
+			TmdbToken:  token,
+			EmbyURL:    embyURL,
+			EmbyApiKey: embyKey,
+		}
+
+		_ = SaveConfig(cfg)
+	} else {
+		cfg, err = LoadConfig()
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	client := &TMDBClient{
-		token:      token,
-		enabled:    token != "",
+		token:      cfg.TmdbToken,
+		enabled:    cfg.TmdbToken != "",
 		httpClient: httpClient,
 	}
 
-	if token == "" {
-		if err != nil {
-			return client, fmt.Errorf("отсутствует токен в %s (%w)", configFileName, err)
-		}
+	if cfg.TmdbToken == "" {
 		return client, fmt.Errorf("токен TMDB не задан в файле %s", configFileName)
 	}
 

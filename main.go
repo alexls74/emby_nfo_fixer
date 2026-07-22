@@ -12,6 +12,8 @@ func main() {
 
 	versionFlag := flag.Bool("v", false, "Показать версию программы")
 	helpFlag := flag.Bool("h", false, "Показать эту справку")
+	embyFlag := flag.Bool("e", false, "Запустить сканирование медиатеки Emby после обработки")
+	silentFlag := flag.Bool("s", false, "Тихий режим (без вывода сообщений в консоль)")
 
 	flag.Usage = func() {
 
@@ -56,8 +58,13 @@ func main() {
 		fmt.Println("Опции:")
 
 		fmt.Printf(
-			"  %-12s Показать эту справку\n",
-			"-h",
+			"  %-12s Запустить сканирование медиатеки Emby при наличии изменений\n",
+			"-e",
+		)
+
+		fmt.Printf(
+			"  %-12s Тихий режим (без вывода в консоль)\n",
+			"-s",
 		)
 
 		fmt.Printf(
@@ -65,11 +72,16 @@ func main() {
 			"-v",
 		)
 
+		fmt.Printf(
+			"  %-12s Показать эту справку\n",
+			"-h",
+		)
+
 		fmt.Println()
 
 		fmt.Println("Пример:")
 		fmt.Printf(
-			"  %-12s /mnt/Movies /mnt/Backups\n",
+			"  %-12s [-e] [-s] /mnt/Movies /mnt/Backups\n",
 			name,
 		)
 
@@ -84,25 +96,45 @@ func main() {
 	}
 
 	if *versionFlag {
-
-		fmt.Println("Emby NFO Fixer")
-
-		fmt.Printf(
-			"Версия %s • %s\n",
-			Version,
-			VersionDate,
-		)
-
+		if !*silentFlag {
+			fmt.Println("Emby NFO Fixer")
+			fmt.Printf(
+				"Версия %s • %s\n",
+				Version,
+				VersionDate,
+			)
+		}
 		return
 	}
 
 	// Инициализируем TMDB (создаст emby_nfo_fixer.conf, если его еще нет)
 	tmdbClient, tmdbErr := NewTMDBClient()
 
+	// Загружаем конфиг для работы с Emby
+	cfg, _ := LoadConfig()
+
+	// Если указан флаг -e, проверяем наличие настроек Emby
+	if *embyFlag {
+		if cfg.EmbyURL == "" || cfg.EmbyApiKey == "" {
+			if !*silentFlag {
+				fmt.Println("⚠️  Указан флаг -e, но данные Emby отсутствуют в конфигурации.")
+			}
+			serverURL, apiKey := PromptForEmbyInteractive()
+			if serverURL == "" || apiKey == "" {
+				if !*silentFlag {
+					fmt.Println("❌ Ошибка: Запуск сканирования Emby невозможно выполнить без настроек.")
+				}
+				os.Exit(1)
+			}
+			cfg.EmbyURL = serverURL
+			cfg.EmbyApiKey = apiKey
+			_ = SaveConfig(cfg)
+		}
+	}
+
 	args := flag.Args()
 
 	if len(args) != 2 {
-
 		flag.Usage()
 		os.Exit(1)
 	}
@@ -113,21 +145,24 @@ func main() {
 	logger, err := NewLogger(backup)
 
 	if err != nil {
-
-		fmt.Println(err.Error())
+		if !*silentFlag {
+			fmt.Println(err.Error())
+		}
 		os.Exit(1)
 	}
 
 	defer logger.Close()
 
-	fmt.Println()
-	fmt.Println("Emby NFO Fixer")
-	fmt.Printf(
-		"Версия %s • %s\n",
-		Version,
-		VersionDate,
-	)
-	fmt.Println()
+	if !*silentFlag {
+		fmt.Println()
+		fmt.Println("Emby NFO Fixer")
+		fmt.Printf(
+			"Версия %s • %s\n",
+			Version,
+			VersionDate,
+		)
+		fmt.Println()
+	}
 
 	// Проверка доступности TMDB API
 	tmdbAvailable := true
@@ -140,30 +175,33 @@ func main() {
 		logger.Error("TMDB_API", fmt.Errorf("TMDB API недоступно: %w", err))
 	}
 
-	fmt.Println("Источник:")
-	fmt.Println(source)
+	if !*silentFlag {
+		fmt.Println("Источник:")
+		fmt.Println(source)
 
-	fmt.Println()
+		fmt.Println()
 
-	fmt.Println("Резервная копия:")
-	fmt.Println(backup)
+		fmt.Println("Резервная копия:")
+		fmt.Println(backup)
 
-	fmt.Println()
+		fmt.Println()
+	}
 
 	files, err := FindNfoFiles(source)
 
 	if err != nil {
-
 		logger.Error(source, err)
-
-		fmt.Println(err.Error())
+		if !*silentFlag {
+			fmt.Println(err.Error())
+		}
 		os.Exit(1)
 	}
 
-	fmt.Printf("Найдено NFO файлов: %d\n\n", len(files))
-
-	fmt.Println("Проверка и обработка файлов...")
-	fmt.Println()
+	if !*silentFlag {
+		fmt.Printf("Найдено NFO файлов: %d\n\n", len(files))
+		fmt.Println("Проверка и обработка файлов...")
+		fmt.Println()
+	}
 
 	progress := NewProgress(len(files))
 
@@ -177,14 +215,15 @@ func main() {
 		movie, err := LoadMovie(file)
 
 		if err != nil {
-
 			logger.Error(
 				file,
 				err,
 			)
 
 			progress.Error()
-			progress.Render()
+			if !*silentFlag {
+				progress.Render()
+			}
 
 			continue
 		}
@@ -200,8 +239,6 @@ func main() {
 					movie.PremieredDate = premiereDate
 					movie.NeedsFix = true
 				}
-			} else {
-				logger.Error(file, fmt.Errorf("отсутствует <premiered> и не найден <tmdbid>"))
 			}
 		}
 
@@ -215,7 +252,9 @@ func main() {
 			)
 
 			progress.Success()
-			progress.Render()
+			if !*silentFlag {
+				progress.Render()
+			}
 
 			continue
 		}
@@ -229,14 +268,15 @@ func main() {
 		)
 
 		if err != nil {
-
 			logger.Error(
 				file,
 				err,
 			)
 
 			progress.Error()
-			progress.Render()
+			if !*silentFlag {
+				progress.Render()
+			}
 
 			continue
 		}
@@ -248,14 +288,15 @@ func main() {
 		err = movie.Save()
 
 		if err != nil {
-
 			logger.Error(
 				file,
 				err,
 			)
 
 			progress.Error()
-			progress.Render()
+			if !*silentFlag {
+				progress.Render()
+			}
 
 			continue
 		}
@@ -271,58 +312,84 @@ func main() {
 		)
 
 		progress.Success()
-		progress.Render()
+		if !*silentFlag {
+			progress.Render()
+		}
 	}
 
-	progress.Finish()
+	if !*silentFlag {
+		progress.Finish()
+		fmt.Println()
 
-	fmt.Println()
+		// Ширина таблицы 40 символов
+		width := 40
+		line := strings.Repeat("─", width-2)
 
-	// Ширина таблицы 40 символов
-	width := 40
-	line := strings.Repeat("─", width-2)
+		fmt.Printf("┌%s┐\n", line)
+		fmt.Printf("│ %-36s │\n", "ИТОГИ ОБРАБОТКИ")
+		fmt.Printf("├%s┤\n", line)
+		fmt.Printf("│ Всего файлов:     %-18d │\n", len(files))
+		fmt.Printf("│ Исправлено:       %-18d │\n", needFix)
+		fmt.Printf("│ Добавлена дата:   %-18d │\n", premieredAdded)
+		fmt.Printf("│ Пропущено:        %-18d │\n", skipped)
+		fmt.Printf("│ Резервных копий:  %-18d │\n", createdBackups)
 
-	fmt.Printf("┌%s┐\n", line)
-	fmt.Printf("│ %-36s │\n", "ИТОГИ ОБРАБОТКИ")
-	fmt.Printf("├%s┤\n", line)
-	fmt.Printf("│ Всего файлов:     %-18d │\n", len(files))
-	fmt.Printf("│ Исправлено:       %-18d │\n", needFix)
-	fmt.Printf("│ Добавлена дата:   %-18d │\n", premieredAdded)
-	fmt.Printf("│ Пропущено:        %-18d │\n", skipped)
-	fmt.Printf("│ Резервных копий:  %-18d │\n", createdBackups)
+		if progress.errors > 0 {
+			fmt.Printf("│ Ошибок:           %-18d │\n", progress.errors)
+		}
 
-	if progress.errors > 0 {
-		fmt.Printf("│ Ошибок:           %-18d │\n", progress.errors)
+		fmt.Printf("└%s┘\n", line)
+
+		fmt.Println()
+
+		if logger.HasChanged() || logger.HasSkipped() || logger.HasErrors() {
+			fmt.Println("Логи операций:")
+
+			var activeLogs []string
+			if logger.HasChanged() {
+				activeLogs = append(activeLogs, filepath.Join(backup, "changed.log"))
+			}
+			if logger.HasSkipped() {
+				activeLogs = append(activeLogs, filepath.Join(backup, "skipped.log"))
+			}
+			if logger.HasErrors() {
+				activeLogs = append(activeLogs, filepath.Join(backup, "error.log"))
+			}
+
+			for i, logPath := range activeLogs {
+				if i == len(activeLogs)-1 {
+					fmt.Printf(" └─ %s\n", logPath)
+				} else {
+					fmt.Printf(" ├─ %s\n", logPath)
+				}
+			}
+		} else {
+			fmt.Println("Логи не создавались (нет записей).")
+		}
+
+		fmt.Println()
 	}
 
-	fmt.Printf("└%s┘\n", line)
-
-	fmt.Println()
-
-	if logger.HasChanged() || logger.HasSkipped() || logger.HasErrors() {
-		fmt.Println("Логи операций:")
-
-		var activeLogs []string
+	// Вызов сканирования Emby при наличии флага -e и изменённых файлов
+	if *embyFlag {
 		if logger.HasChanged() {
-			activeLogs = append(activeLogs, filepath.Join(backup, "changed.log"))
-		}
-		if logger.HasSkipped() {
-			activeLogs = append(activeLogs, filepath.Join(backup, "skipped.log"))
-		}
-		if logger.HasErrors() {
-			activeLogs = append(activeLogs, filepath.Join(backup, "error.log"))
-		}
-
-		for i, logPath := range activeLogs {
-			if i == len(activeLogs)-1 {
-				fmt.Printf(" └─ %s\n", logPath)
+			embyClient := NewEmbyClient(cfg.EmbyURL, cfg.EmbyApiKey)
+			if err := embyClient.TriggerLibraryScan(); err != nil {
+				logger.Error("EMBY_API", fmt.Errorf("не удалось запустить сканирование медиатеки: %w", err))
+				if !*silentFlag {
+					fmt.Println("⚠️ Не удалось запустить сканирование Emby (подробности в error.log)")
+				}
 			} else {
-				fmt.Printf(" ├─ %s\n", logPath)
+				if !*silentFlag {
+					fmt.Println("Запущено сканирование медиатеки Emby.")
+					fmt.Println("Cканирование займёт некоторое время. Пожалуйста, подождите.")
+					fmt.Println()
+				}
+			}
+		} else {
+			if !*silentFlag {
+				fmt.Println("ℹ️ Файлы не изменялись, сканирование Emby пропущено.")
 			}
 		}
-	} else {
-		fmt.Println("Логи не создавались (нет записей).")
 	}
-
-	fmt.Println()
 }

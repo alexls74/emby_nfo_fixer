@@ -85,5 +85,5 @@ publish: check-gh release
 	@echo "✨ Релиз v$(VERSION) успешно опубликован на GitHub!"
 
 clean:
-	rm -rf ${BINARY_FOLDER}
+	rm -rf ${BINARY_FOLDER} ${RELEASE_FOLDER}
 	go clean

@@ -1,290 +1,258 @@
 package main
 
 import (
+	"encoding/xml"
 	"fmt"
 	"os"
 	"regexp"
 	"strings"
 )
 
-var tmdbIDRegexp = regexp.MustCompile(`<tmdbid>([0-9]+)</tmdbid>`)
-
-type Movie struct {
-	File string
-
-	Content string
-
-	Credits   []string
-	Directors []string
-	Actors    []string
-
-	MovedCredits   int
-	MovedDirectors int
-
-	LastMovedCredits   int
-	LastMovedDirectors int
-
-	// Поля для работы с TMDB и тегом <premiered>
-	TmdbID            string
-	HasPremiered      bool
-	NeedsPremieredFix bool
-	PremieredDate     string
-
-	NeedsFix bool
+type UniqueID struct {
+	Type    string `xml:"type,attr"`
+	Default string `xml:"default,attr,omitempty"`
+	Value   string `xml:",chardata"`
 }
 
-// LoadMovie загружает и анализирует NFO файл фильма
-func LoadMovie(filename string) (*Movie, error) {
+type Movie struct {
+	Path              string     `xml:"-"`
+	RawContent        string     `xml:"-"`
+	Lines             []string   `xml:"-"`
+	HasPremiered      bool       `xml:"-"`
+	TmdbID            string     `xml:"-"`
+	PremieredDate     string     `xml:"-"`
+	NeedsPremieredFix bool       `xml:"-"`
+	NeedsFix          bool       `xml:"-"`
+	MovedCredits      int        `xml:"-"`
+	MovedDirectors    int        `xml:"-"`
+	UniqueIDs         []UniqueID `xml:"uniqueid"`
+	TmdbIDTag         string     `xml:"tmdbid"`
+}
 
-	data, err := os.ReadFile(filename)
-
+// LoadMovie загружает и первично анализирует NFO файл
+func LoadMovie(path string) (*Movie, error) {
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf(
-			"ошибка чтения файла: %w",
-			err,
-		)
+		return nil, fmt.Errorf("ошибка чтения файла: %w", err)
 	}
 
 	content := string(data)
-
 	movie := &Movie{
-		File:    filename,
-		Content: content,
+		Path:       path,
+		RawContent: content,
+		Lines:      strings.Split(content, "\n"),
 	}
 
-	movie.analyze()
-
-	return movie, nil
-}
-
-func (m *Movie) analyze() {
-
-	lines := strings.Split(
-		m.Content,
-		"\n",
-	)
-
-	var (
-		actorIndexes   []int
-		specialIndexes []int
-	)
-
-	m.MovedCredits = 0
-	m.MovedDirectors = 0
-	m.NeedsFix = false
-	m.HasPremiered = false
-	m.TmdbID = ""
-
-	m.Credits = nil
-	m.Directors = nil
-	m.Actors = nil
-
-	// Поиск TMDB ID в файле
-	if matches := tmdbIDRegexp.FindStringSubmatch(m.Content); len(matches) > 1 {
-		m.TmdbID = matches[1]
+	// Чтение структуры через XML парсер для проверки тегов ID и premiered
+	var xmlData struct {
+		Premiered string     `xml:"premiered"`
+		TmdbID    string     `xml:"tmdbid"`
+		UniqueIDs []UniqueID `xml:"uniqueid"`
 	}
 
-	for i, line := range lines {
-
-		trim := strings.TrimSpace(line)
-
-		if strings.HasPrefix(trim, "<premiered>") {
-			m.HasPremiered = true
+	if err := xml.Unmarshal(data, &xmlData); err == nil {
+		if strings.TrimSpace(xmlData.Premiered) != "" {
+			movie.HasPremiered = true
 		}
 
-		switch {
-
-		case strings.HasPrefix(trim, "<actor>"):
-
-			actorIndexes = append(
-				actorIndexes,
-				i,
-			)
-
-			m.Actors = append(
-				m.Actors,
-				line,
-			)
-
-		case strings.HasPrefix(trim, "<credits>"):
-
-			m.Credits = append(
-				m.Credits,
-				line,
-			)
-
-			specialIndexes = append(
-				specialIndexes,
-				i,
-			)
-
-		case strings.HasPrefix(trim, "<director>"):
-
-			m.Directors = append(
-				m.Directors,
-				line,
-			)
-
-			specialIndexes = append(
-				specialIndexes,
-				i,
-			)
+		// 1. Поиск TMDB ID в стандартном теге <tmdbid>
+		if strings.TrimSpace(xmlData.TmdbID) != "" {
+			movie.TmdbID = strings.TrimSpace(xmlData.TmdbID)
 		}
-	}
 
-	if len(actorIndexes) > 0 {
-		lastActor := actorIndexes[len(actorIndexes)-1]
-
-		for _, index := range specialIndexes {
-
-			if index < lastActor {
-
-				m.NeedsFix = true
-
-				trim := strings.TrimSpace(
-					lines[index],
-				)
-
-				switch {
-
-				case strings.HasPrefix(trim, "<credits>"):
-					m.MovedCredits++
-
-				case strings.HasPrefix(trim, "<director>"):
-					m.MovedDirectors++
+		// 2. Если в <tmdbid> пусто, ищем в <uniqueid type="tmdb">
+		if movie.TmdbID == "" {
+			for _, uid := range xmlData.UniqueIDs {
+				if strings.ToLower(uid.Type) == "tmdb" && strings.TrimSpace(uid.Value) != "" {
+					movie.TmdbID = strings.TrimSpace(uid.Value)
+					break
 				}
 			}
 		}
+	} else {
+		// Резервный поиск регулярными выражениями, если XML нестрогий
+		if regexp.MustCompile(`(?i)<premiered>.*?</premiered>`).MatchString(content) {
+			movie.HasPremiered = true
+		}
+
+		tmdbMatch := regexp.MustCompile(`(?i)<tmdbid>(\d+)</tmdbid>`).FindStringSubmatch(content)
+		if len(tmdbMatch) > 1 {
+			movie.TmdbID = tmdbMatch[1]
+		} else {
+			uidMatch := regexp.MustCompile(`(?i)<uniqueid[^>]*type=["']tmdb["'][^>]*>(\d+)</uniqueid>`).FindStringSubmatch(content)
+			if len(uidMatch) > 1 {
+				movie.TmdbID = uidMatch[1]
+			}
+		}
 	}
+
+	movie.Analyze()
+	return movie, nil
 }
 
-func (m *Movie) Fix() {
+// Analyze проверяет порядок тегов <credits> и <director> относительно <actor>
+func (m *Movie) Analyze() {
+	firstActorLine := -1
+	creditsLines := []int{}
+	directorLines := []int{}
 
-	m.LastMovedCredits = m.MovedCredits
-	m.LastMovedDirectors = m.MovedDirectors
+	for i, line := range m.Lines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "<actor>") || strings.HasPrefix(trimmed, "<actor ") {
+			if firstActorLine == -1 {
+				firstActorLine = i
+			}
+		} else if strings.HasPrefix(trimmed, "<credits>") || strings.HasPrefix(trimmed, "<credits ") {
+			creditsLines = append(creditsLines, i)
+		} else if strings.HasPrefix(trimmed, "<director>") || strings.HasPrefix(trimmed, "<director ") {
+			directorLines = append(directorLines, i)
+		}
+	}
 
-	lines := strings.Split(
-		m.Content,
-		"\n",
-	)
+	// Если есть актеры, проверяем, стоят ли режиссер и сценаристы ДО актеров
+	if firstActorLine != -1 {
+		for _, lineIdx := range creditsLines {
+			if lineIdx < firstActorLine {
+				m.MovedCredits++
+			}
+		}
+		for _, lineIdx := range directorLines {
+			if lineIdx < firstActorLine {
+				m.MovedDirectors++
+			}
+		}
+	}
 
-	// 1. Исправление структуры
 	if m.MovedCredits > 0 || m.MovedDirectors > 0 {
-		var result []string
-
-		for _, line := range lines {
-
-			trim := strings.TrimSpace(line)
-
-			if strings.HasPrefix(trim, "<credits>") ||
-				strings.HasPrefix(trim, "<director>") {
-
-				continue
-			}
-
-			result = append(
-				result,
-				line,
-			)
-		}
-
-		lastActor := -1
-
-		for i, line := range result {
-
-			if strings.HasPrefix(
-				strings.TrimSpace(line),
-				"</actor>",
-			) {
-
-				lastActor = i
-			}
-		}
-
-		if lastActor != -1 {
-			insert := []string{}
-
-			insert = append(
-				insert,
-				m.Credits...,
-			)
-
-			insert = append(
-				insert,
-				m.Directors...,
-			)
-
-			final := make(
-				[]string,
-				0,
-				len(result)+len(insert),
-			)
-
-			final = append(
-				final,
-				result[:lastActor+1]...,
-			)
-
-			final = append(
-				final,
-				insert...,
-			)
-
-			final = append(
-				final,
-				result[lastActor+1:]...,
-			)
-
-			lines = final
-		}
+		m.NeedsFix = true
 	}
-
-	// 2. Вставка <premiered> сразу после <year> с сохранением отступа
-	if m.NeedsPremieredFix && m.PremieredDate != "" {
-		var finalLines []string
-		premieredInserted := false
-
-		for _, line := range lines {
-			finalLines = append(finalLines, line)
-
-			trim := strings.TrimSpace(line)
-			if !premieredInserted && strings.HasPrefix(trim, "<year>") {
-				// Вычисляем оригинальный отступ
-				indentLen := len(line) - len(strings.TrimLeft(line, " \t"))
-				indent := line[:indentLen]
-
-				premieredLine := fmt.Sprintf("%s<premiered>%s</premiered>", indent, m.PremieredDate)
-				finalLines = append(finalLines, premieredLine)
-				premieredInserted = true
-			}
-		}
-
-		lines = finalLines
-	}
-
-	m.Content = strings.Join(
-		lines,
-		"\n",
-	)
-
-	m.analyze()
 }
 
-func (m *Movie) Save() error {
+// Fix выполняет перемещение тегов и добавление даты премьеры
+func (m *Movie) Fix() {
+	var newLines []string
+	var extractedCredits []string
+	var extractedDirectors []string
 
-	err := os.WriteFile(
-		m.File,
-		[]byte(m.Content),
-		0644,
-	)
+	inCredits := false
+	inDirector := false
 
-	if err != nil {
+	// Извлекаем <credits> и <director>
+	for _, line := range m.Lines {
+		trimmed := strings.TrimSpace(line)
 
-		return fmt.Errorf(
-			"ошибка сохранения файла: %w",
-			err,
-		)
+		if strings.HasPrefix(trimmed, "<credits>") || strings.HasPrefix(trimmed, "<credits ") {
+			inCredits = true
+			extractedCredits = append(extractedCredits, line)
+			if strings.Contains(trimmed, "</credits>") {
+				inCredits = false
+			}
+			continue
+		}
+		if inCredits {
+			extractedCredits = append(extractedCredits, line)
+			if strings.Contains(trimmed, "</credits>") {
+				inCredits = false
+			}
+			continue
+		}
+
+		if strings.HasPrefix(trimmed, "<director>") || strings.HasPrefix(trimmed, "<director ") {
+			inDirector = true
+			extractedDirectors = append(extractedDirectors, line)
+			if strings.Contains(trimmed, "</director>") {
+				inDirector = false
+			}
+			continue
+		}
+		if inDirector {
+			extractedDirectors = append(extractedDirectors, line)
+			if strings.Contains(trimmed, "</director>") {
+				inDirector = false
+			}
+			continue
+		}
+
+		newLines = append(newLines, line)
 	}
 
-	return nil
+	// Вставляем извлеченные теги строго ПОСЛЕ последнего блока <actor>
+	var finalLines []string
+	lastActorEndIndex := -1
+
+	for i, line := range newLines {
+		trimmed := strings.TrimSpace(line)
+		if strings.HasPrefix(trimmed, "</actor>") {
+			lastActorEndIndex = i
+		}
+	}
+
+	if lastActorEndIndex != -1 {
+		for i, line := range newLines {
+			finalLines = append(finalLines, line)
+			if i == lastActorEndIndex {
+				finalLines = append(finalLines, extractedCredits...)
+				finalLines = append(finalLines, extractedDirectors...)
+			}
+		}
+	} else {
+		// Если актеров нет, вставляем перед закрывающим тегом </movie>
+		for _, line := range newLines {
+			trimmed := strings.TrimSpace(line)
+			if strings.HasPrefix(trimmed, "</movie>") {
+				finalLines = append(finalLines, extractedCredits...)
+				finalLines = append(finalLines, extractedDirectors...)
+			}
+			finalLines = append(finalLines, line)
+		}
+	}
+
+	// Добавление тега <premiered>, если его не было
+	if m.NeedsPremieredFix && m.PremieredDate != "" {
+		var premieredLines []string
+		inserted := false
+
+		// Определяем отступ для красивого форматирования XML
+		indent := "    "
+		for _, line := range finalLines {
+			if strings.Contains(line, "<year>") || strings.Contains(line, "<title>") {
+				indent = line[:len(line)-len(strings.TrimLeft(line, " \t"))]
+				break
+			}
+		}
+
+		premieredTag := fmt.Sprintf("%s<premiered>%s</premiered>", indent, m.PremieredDate)
+
+		for _, line := range finalLines {
+			trimmed := strings.TrimSpace(line)
+			if !inserted && (strings.HasPrefix(trimmed, "<year>") || strings.HasPrefix(trimmed, "<plot>")) {
+				premieredLines = append(premieredLines, premieredTag)
+				inserted = true
+			}
+			premieredLines = append(premieredLines, line)
+		}
+
+		if !inserted {
+			// Если не нашли <year> или <plot>, добавляем после <movie>
+			var fallbackLines []string
+			for _, line := range premieredLines {
+				fallbackLines = append(fallbackLines, line)
+				if !inserted && strings.Contains(line, "<movie>") {
+					fallbackLines = append(fallbackLines, premieredTag)
+					inserted = true
+				}
+			}
+			premieredLines = fallbackLines
+		}
+
+		finalLines = premieredLines
+	}
+
+	m.Lines = finalLines
+	m.RawContent = strings.Join(finalLines, "\n")
+}
+
+// Save сохраняет изменения обратно в файл
+func (m *Movie) Save() error {
+	return os.WriteFile(m.Path, []byte(m.RawContent), 0644)
 }

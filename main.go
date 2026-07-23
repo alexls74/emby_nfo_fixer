@@ -30,6 +30,7 @@ func main() {
 			Version,
 			VersionDate,
 		)
+		fmt.Printf("Конфигурация: %s\n", GetConfigPath())
 
 		fmt.Println()
 
@@ -106,20 +107,21 @@ func main() {
 				Version,
 				VersionDate,
 			)
+			fmt.Printf("Конфигурация: %s\n", GetConfigPath())
 		}
 		return
 	}
 
-	// Загружаем конфиг или создаем его через интерактивный опрос
+	// 1. Загружаем конфиг или запускаем интерактивный опрос ДО проверки аргументов
 	cfg, err := EnsureConfig()
 	if err != nil && !*silentFlag {
 		fmt.Printf("⚠️ Ошибка работы с конфигурацией: %v\n", err)
 	}
 
-	// Инициализируем TMDB клиент
+	// 2. Инициализируем TMDB клиент
 	tmdbClient := NewTMDBClient(cfg.TmdbToken)
 
-	// Если указан флаг -e, проверяем наличие настроек Emby
+	// 3. Если указан флаг -e, проверяем наличие настроек Emby
 	if *embyFlag {
 		if cfg.EmbyURL == "" || cfg.EmbyApiKey == "" {
 			if !*silentFlag {
@@ -138,6 +140,7 @@ func main() {
 		}
 	}
 
+	// 4. Проверяем аргументы запуска (SOURCE и BACKUP)
 	args := flag.Args()
 
 	if len(args) != 2 {

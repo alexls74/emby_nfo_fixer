@@ -6,11 +6,16 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 )
 
-const configFileName = "emby_nfo_fixer.conf"
+const (
+	configDirName  = "emby_nfo_fixer"
+	configFileName = "config.conf"
+	legacyFileName = "emby_nfo_fixer.conf"
+)
 
 type Config struct {
 	TmdbToken  string
@@ -19,17 +24,48 @@ type Config struct {
 	Language   string // "ru" или "en"
 }
 
-func getConfigPath() string {
+// GetConfigPath определяет путь к конфигурационному файлу
+func GetConfigPath() string {
+	var userDir string
+
+	if runtime.GOOS == "windows" {
+		userDir, _ = os.UserConfigDir() // %APPDATA%
+	} else {
+		// Для macOS и Linux используем ~/.config
+		home, err := os.UserHomeDir()
+		if err == nil {
+			userDir = filepath.Join(home, ".config")
+		} else {
+			userDir, _ = os.UserConfigDir()
+		}
+	}
+
+	targetDir := filepath.Join(userDir, configDirName)
+	targetPath := filepath.Join(targetDir, configFileName)
+
+	// Старый путь (рядом с исполняемым файлом)
 	execPath, err := os.Executable()
 	if err != nil {
 		execPath = "."
 	}
-	execDir := filepath.Dir(execPath)
-	return filepath.Join(execDir, configFileName)
+	legacyPath := filepath.Join(filepath.Dir(execPath), legacyFileName)
+
+	// Если целевого файла НЕТ, но есть СТАРЫЙ — переносим
+	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
+		if data, err := os.ReadFile(legacyPath); err == nil {
+			if err := os.MkdirAll(targetDir, 0755); err == nil {
+				if err := os.WriteFile(targetPath, data, 0644); err == nil {
+					_ = os.Remove(legacyPath)
+				}
+			}
+		}
+	}
+
+	return targetPath
 }
 
 func LoadConfig() (*Config, error) {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 
 	cfg := &Config{
 		Language: "ru",
@@ -76,7 +112,11 @@ func LoadConfig() (*Config, error) {
 }
 
 func SaveConfig(cfg *Config) error {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
+
+	if err := os.MkdirAll(filepath.Dir(configPath), 0755); err != nil {
+		return err
+	}
 
 	if cfg.Language == "" {
 		cfg.Language = "ru"
@@ -137,7 +177,7 @@ func promptForTMDBToken(httpClient *http.Client) string {
 
 // EnsureConfig загружает существующий конфиг или запускает мастер настройки при его отсутствии
 func EnsureConfig() (*Config, error) {
-	configPath := getConfigPath()
+	configPath := GetConfigPath()
 
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		httpClient := &http.Client{Timeout: 10 * time.Second}

@@ -44,7 +44,7 @@ func checkTokenValid(client *http.Client, token string) error {
 	return nil
 }
 
-// NewTMDBClient теперь создает клиент строго по переданному токену
+// NewTMDBClient создает клиент по переданному токену
 func NewTMDBClient(token string) *TMDBClient {
 	return &TMDBClient{
 		token:   token,

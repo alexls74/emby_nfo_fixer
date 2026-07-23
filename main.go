@@ -110,11 +110,14 @@ func main() {
 		return
 	}
 
-	// Инициализируем TMDB (создаст emby_nfo_fixer.conf, если его еще нет)
-	tmdbClient, tmdbErr := NewTMDBClient()
+	// Загружаем конфиг или создаем его через интерактивный опрос
+	cfg, err := EnsureConfig()
+	if err != nil && !*silentFlag {
+		fmt.Printf("⚠️ Ошибка работы с конфигурацией: %v\n", err)
+	}
 
-	// Загружаем конфиг для работы с Emby
-	cfg, _ := LoadConfig()
+	// Инициализируем TMDB клиент
+	tmdbClient := NewTMDBClient(cfg.TmdbToken)
 
 	// Если указан флаг -e, проверяем наличие настроек Emby
 	if *embyFlag {
@@ -170,10 +173,7 @@ func main() {
 	// Проверка доступности TMDB API
 	tmdbAvailable := true
 
-	if tmdbErr != nil {
-		tmdbAvailable = false
-		logger.Error("TMDB_API", fmt.Errorf("TMDB API отключено: %w", tmdbErr))
-	} else if err := tmdbClient.CheckAvailability(); err != nil {
+	if err := tmdbClient.CheckAvailability(); err != nil {
 		tmdbAvailable = false
 		logger.Error("TMDB_API", fmt.Errorf("TMDB API недоступно: %w", err))
 	}

@@ -1,6 +1,6 @@
 .PHONY: build clean help check-upx check-gh release publish
 
-BINARY_FOLDER := ./build/bin
+BINARY_FOLDER := ./build
 RELEASE_FOLDER := ./release
 BINARY_NAME := emby_nfo_fixer
 VERSION := $(shell cat VERSION)

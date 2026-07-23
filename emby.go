@@ -49,7 +49,6 @@ func (c *EmbyClient) CheckServer() error {
 	checkURL := fmt.Sprintf("%s/emby/System/Info/Public", c.serverURL)
 	resp, err := c.httpClient.Get(checkURL)
 	if err != nil {
-		// Компактное сообщение об ошибке без портянки context deadline / net.OpError
 		return fmt.Errorf("сервер Emby недоступен по адресу %s", c.serverURL)
 	}
 	defer resp.Body.Close()

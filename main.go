@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+var Version = "dev"
+var VersionDate = "unknown"
+
 func main() {
 
 	versionFlag := flag.Bool("v", false, "Показать версию программы")
@@ -388,7 +391,8 @@ func main() {
 			}
 		} else {
 			if !*silentFlag {
-				fmt.Println("ℹ️ Файлы не изменялись, сканирование Emby пропущено.")
+				fmt.Println("Файлы не изменялись, сканирование Emby пропущено.")
+				fmt.Println()
 			}
 		}
 	}

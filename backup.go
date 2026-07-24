@@ -12,7 +12,7 @@ func CreateBackup(sourceFile, sourceRoot, backupRoot string) (string, error) {
 	// Получаем относительный путь от корня SOURCE
 	relativePath, err := filepath.Rel(sourceRoot, sourceFile)
 	if err != nil {
-		return "", fmt.Errorf("не удалось определить относительный путь: %w", err)
+		return "", fmt.Errorf("%s: %w", T("err_rel_path"), err)
 	}
 
 	// Полный путь в BACKUP
@@ -22,12 +22,12 @@ func CreateBackup(sourceFile, sourceRoot, backupRoot string) (string, error) {
 	backupDir := filepath.Dir(backupFile)
 
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
-		return "", fmt.Errorf("не удалось создать каталог бэкапа: %w", err)
+		return "", fmt.Errorf("%s: %w", T("err_create_bak_dir"), err)
 	}
 
 	// Копируем файл
 	if err := copyFile(sourceFile, backupFile); err != nil {
-		return "", fmt.Errorf("ошибка копирования %s: %w", sourceFile, err)
+		return "", fmt.Errorf("%s: %w", TF("err_copy_file", sourceFile), err)
 	}
 
 	return backupFile, nil

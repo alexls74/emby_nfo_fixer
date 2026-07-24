@@ -33,7 +33,7 @@ type Movie struct {
 func LoadMovie(path string) (*Movie, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("ошибка чтения файла: %w", err)
+		return nil, fmt.Errorf("%s: %w", T("err_read_nfo"), err)
 	}
 
 	content := string(data)

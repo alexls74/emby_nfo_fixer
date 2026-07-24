@@ -31,7 +31,7 @@ func FindNfoFiles(root string) ([]string, error) {
 
 		// Обновляем анимацию не чаще, чем раз в 80 мс
 		if time.Since(lastUpdate) > 80*time.Millisecond {
-			fmt.Printf("\r%s Поиск NFO файлов... Найдено: %d", frames[frameIdx], len(files))
+			fmt.Printf("\r%s %s %s", frames[frameIdx], T("searching_nfo"), TF("nfo_found", len(files)))
 			frameIdx = (frameIdx + 1) % len(frames)
 			lastUpdate = time.Now()
 		}
@@ -41,7 +41,7 @@ func FindNfoFiles(root string) ([]string, error) {
 
 	if err != nil {
 		fmt.Print("\r\033[K")
-		return nil, fmt.Errorf("ошибка поиска NFO файлов: %w", err)
+		return nil, fmt.Errorf("%s: %w", T("err_search_nfo"), err)
 	}
 
 	fmt.Print("\r\033[K")

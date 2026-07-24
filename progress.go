@@ -44,11 +44,10 @@ func (p *Progress) Render() {
 		strings.Repeat("░", empty)
 
 	fmt.Printf(
-		"\r%s %3d%%  Обработано: %d/%d",
+		"\r%s %3d%%  %s",
 		bar,
 		percent,
-		p.current,
-		p.total,
+		TF("progress_render", p.current, p.total),
 	)
 }
 

@@ -1,12 +1,9 @@
 package main
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
-	"strings"
 	"time"
 )
 
@@ -24,7 +21,7 @@ type tmdbMovieResponse struct {
 func checkTokenValid(client *http.Client, token string) error {
 	req, err := http.NewRequest("GET", "https://api.themoviedb.org/3/movie/550", nil)
 	if err != nil {
-		return fmt.Errorf("ошибка создания запроса: %w", err)
+		return fmt.Errorf(T("err_tmdb_req_create"), err)
 	}
 
 	req.Header.Add("Authorization", "Bearer "+token)
@@ -32,12 +29,12 @@ func checkTokenValid(client *http.Client, token string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("сетевая ошибка при проверке: %w", err)
+		return fmt.Errorf(T("err_tmdb_network"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("недействительный токен (401 Unauthorized)")
+		return fmt.Errorf("%s", T("err_tmdb_401"))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -47,98 +44,15 @@ func checkTokenValid(client *http.Client, token string) error {
 	return nil
 }
 
-// promptForToken запрашивает токен у пользователя в терминале
-func promptForToken(httpClient *http.Client) string {
-	reader := bufio.NewReader(os.Stdin)
-
-	fmt.Print("Файл конфигурации не найден. Хотите настроить TMDB API токен сейчас? (y/N): ")
-	answer, _ := reader.ReadString('\n')
-	answer = strings.ToLower(strings.TrimSpace(answer))
-
-	if answer != "y" && answer != "yes" && answer != "д" && answer != "да" {
-		fmt.Println("Интеграция с TMDB пропущена.")
-		return ""
+// NewTMDBClient создает клиент по переданному токену
+func NewTMDBClient(token string) *TMDBClient {
+	return &TMDBClient{
+		token:   token,
+		enabled: token != "",
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+		},
 	}
-
-	for {
-		fmt.Print("Введите TMDB API токен: ")
-		token, _ := reader.ReadString('\n')
-		token = strings.TrimSpace(token)
-
-		if token == "" {
-			fmt.Println("Введён пустой токен. Пропускаем.")
-			return ""
-		}
-
-		fmt.Print("Проверка токена... ")
-		if err := checkTokenValid(httpClient, token); err != nil {
-			fmt.Printf("❌ Ошибка: %v\n", err)
-
-			fmt.Print("Попробовать ввести снова? (Y/n): ")
-			retry, _ := reader.ReadString('\n')
-			retry = strings.ToLower(strings.TrimSpace(retry))
-
-			if retry == "n" || retry == "no" || retry == "н" || retry == "нет" {
-				fmt.Println("Интеграция с TMDB пропущена.")
-				return ""
-			}
-		} else {
-			fmt.Println("✅ Токен успешно проверен!")
-			return token
-		}
-	}
-}
-
-func NewTMDBClient() (*TMDBClient, error) {
-	httpClient := &http.Client{
-		Timeout: 10 * time.Second,
-	}
-
-	configPath := getConfigPath()
-
-	var cfg *Config
-	var err error
-
-	// Если конфиг не существует, запускаем мастер настройки
-	if _, statErr := os.Stat(configPath); os.IsNotExist(statErr) {
-		token := promptForToken(httpClient)
-
-		var embyURL, embyKey string
-		fmt.Print("Хотите настроить автоматическое сканирование Emby? (y/N): ")
-		reader := bufio.NewReader(os.Stdin)
-		embyAns, _ := reader.ReadString('\n')
-		embyAns = strings.ToLower(strings.TrimSpace(embyAns))
-
-		if embyAns == "y" || embyAns == "yes" || embyAns == "д" || embyAns == "да" {
-			embyURL, embyKey = PromptForEmbyInteractive()
-		}
-
-		cfg = &Config{
-			TmdbToken:  token,
-			EmbyURL:    embyURL,
-			EmbyApiKey: embyKey,
-			Language:   "ru",
-		}
-
-		_ = SaveConfig(cfg)
-	} else {
-		cfg, err = LoadConfig()
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	client := &TMDBClient{
-		token:      cfg.TmdbToken,
-		enabled:    cfg.TmdbToken != "",
-		httpClient: httpClient,
-	}
-
-	if cfg.TmdbToken == "" {
-		return client, fmt.Errorf("токен TMDB не задан в файле %s", configFileName)
-	}
-
-	return client, nil
 }
 
 func (c *TMDBClient) IsEnabled() bool {
@@ -147,14 +61,14 @@ func (c *TMDBClient) IsEnabled() bool {
 
 func (c *TMDBClient) CheckAvailability() error {
 	if !c.IsEnabled() {
-		return nil
+		return fmt.Errorf(T("err_tmdb_no_token"), configFileName)
 	}
 	return checkTokenValid(c.httpClient, c.token)
 }
 
 func (c *TMDBClient) GetReleaseDate(tmdbID string) (string, error) {
 	if !c.IsEnabled() {
-		return "", fmt.Errorf("модуль TMDB отключен")
+		return "", fmt.Errorf("%s", T("err_tmdb_disabled"))
 	}
 
 	url := fmt.Sprintf("https://api.themoviedb.org/3/movie/%s", tmdbID)
@@ -174,20 +88,20 @@ func (c *TMDBClient) GetReleaseDate(tmdbID string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("фильм с TMDB ID %s не найден (404 Not Found)", tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_not_found"), tmdbID)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("TMDB API вернуло статус %d для ID %s", resp.StatusCode, tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_api_status"), resp.StatusCode, tmdbID)
 	}
 
 	var movieData tmdbMovieResponse
 	if err := json.NewDecoder(resp.Body).Decode(&movieData); err != nil {
-		return "", fmt.Errorf("ошибка декодирования ответа TMDB: %w", err)
+		return "", fmt.Errorf(T("err_tmdb_decode"), err)
 	}
 
 	if movieData.ReleaseDate == "" {
-		return "", fmt.Errorf("у фильма с TMDB ID %s отсутствует дата релиза в ответе API", tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_no_release"), tmdbID)
 	}
 
 	return movieData.ReleaseDate, nil

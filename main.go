@@ -13,27 +13,28 @@ var VersionDate = "unknown"
 
 func main() {
 
-	versionFlag := flag.Bool("v", false, "Показать версию программы")
-	helpFlag := flag.Bool("h", false, "Показать эту справку")
-	embyFlag := flag.Bool("e", false, "Запустить сканирование медиатеки Emby после обработки")
-	silentFlag := flag.Bool("s", false, "Тихий режим (без вывода сообщений в консоль)")
+	// 1. Загружаем конфиг и устанавливаем язык
+	cfg, cfgErr := EnsureConfig()
+	SetLanguage(cfg.Language)
+
+	// 2. Объявляем флаги
+	versionFlag := flag.Bool("v", false, T("flag_version_desc"))
+	helpFlag := flag.Bool("h", false, T("flag_help_desc"))
+	embyFlag := flag.Bool("e", false, T("flag_emby_desc"))
+	silentFlag := flag.Bool("s", false, T("flag_silent_desc"))
 
 	flag.Usage = func() {
-
 		name := filepath.Base(os.Args[0])
 
 		fmt.Println()
 
-		fmt.Println("Emby NFO Fixer")
-		fmt.Printf(
-			"Версия %s • %s\n",
-			Version,
-			VersionDate,
-		)
+		fmt.Println(T("usage_title"))
+		fmt.Println(TF("usage_ver", Version, VersionDate))
+		fmt.Println(TF("usage_config", GetConfigPath()))
 
 		fmt.Println()
 
-		fmt.Println("Использование:")
+		fmt.Println(T("usage_usage"))
 		fmt.Printf(
 			"  %-12s %s %s %s\n",
 			name,
@@ -44,45 +45,51 @@ func main() {
 
 		fmt.Println()
 
-		fmt.Println("Аргументы:")
+		fmt.Println(T("usage_args"))
 
 		fmt.Printf(
-			"  %-12s Путь к папке с фильмами\n",
+			"  %-12s %s\n",
 			"SOURCE",
+			T("usage_arg_source"),
 		)
 
 		fmt.Printf(
-			"  %-12s Путь к папке для резервного копирования\n",
+			"  %-12s %s\n",
 			"BACKUP",
+			T("usage_arg_backup"),
 		)
 
 		fmt.Println()
 
-		fmt.Println("Опции:")
+		fmt.Println(T("usage_options"))
 
 		fmt.Printf(
-			"  %-12s Запустить сканирование медиатеки Emby при наличии изменений\n",
+			"  %-12s %s\n",
 			"-e",
+			T("flag_emby_desc"),
 		)
 
 		fmt.Printf(
-			"  %-12s Тихий режим (без вывода в консоль)\n",
+			"  %-12s %s\n",
 			"-s",
+			T("flag_silent_desc"),
 		)
 
 		fmt.Printf(
-			"  %-12s Показать версию программы\n",
+			"  %-12s %s\n",
 			"-v",
+			T("flag_version_desc"),
 		)
 
 		fmt.Printf(
-			"  %-12s Показать эту справку\n",
+			"  %-12s %s\n",
 			"-h",
+			T("flag_help_desc"),
 		)
 
 		fmt.Println()
 
-		fmt.Println("Пример:")
+		fmt.Println(T("usage_example"))
 		fmt.Printf(
 			"  %-12s [-e] [-s] /mnt/Movies /mnt/Backups\n",
 			name,
@@ -100,32 +107,33 @@ func main() {
 
 	if *versionFlag {
 		if !*silentFlag {
-			fmt.Println("Emby NFO Fixer")
-			fmt.Printf(
-				"Версия %s • %s\n",
-				Version,
-				VersionDate,
-			)
+			fmt.Println()
+			fmt.Println(T("usage_title"))
+			fmt.Println(TF("usage_ver", Version, VersionDate))
+			fmt.Println(TF("usage_config", GetConfigPath()))
+			fmt.Println()
 		}
 		return
 	}
 
-	// Инициализируем TMDB (создаст emby_nfo_fixer.conf, если его еще нет)
-	tmdbClient, tmdbErr := NewTMDBClient()
+	// 3. Выводим ошибку загрузки конфига (если была), когда убедились, что это не был вызов -h или -v
+	if cfgErr != nil && !*silentFlag {
+		fmt.Println(TF("err_config", cfgErr))
+	}
 
-	// Загружаем конфиг для работы с Emby
-	cfg, _ := LoadConfig()
+	// 4. Инициализируем TMDB клиент
+	tmdbClient := NewTMDBClient(cfg.TmdbToken)
 
-	// Если указан флаг -e, проверяем наличие настроек Emby
+	// 5. Если указан флаг -e, проверяем наличие настроек Emby
 	if *embyFlag {
 		if cfg.EmbyURL == "" || cfg.EmbyApiKey == "" {
 			if !*silentFlag {
-				fmt.Println("⚠️  Указан флаг -e, но данные Emby отсутствуют в конфигурации.")
+				fmt.Println(T("warn_emby_no_auth"))
 			}
 			serverURL, apiKey := PromptForEmbyInteractive()
 			if serverURL == "" || apiKey == "" {
 				if !*silentFlag {
-					fmt.Println("❌ Ошибка: Запуск сканирования Emby невозможно выполнить без настроек.")
+					fmt.Println(T("err_emby_no_auth"))
 				}
 				os.Exit(1)
 			}
@@ -135,6 +143,7 @@ func main() {
 		}
 	}
 
+	// 6. Проверяем аргументы запуска (SOURCE и BACKUP)
 	args := flag.Args()
 
 	if len(args) != 2 {
@@ -158,33 +167,26 @@ func main() {
 
 	if !*silentFlag {
 		fmt.Println()
-		fmt.Println("Emby NFO Fixer")
-		fmt.Printf(
-			"Версия %s • %s\n",
-			Version,
-			VersionDate,
-		)
+		fmt.Println(T("usage_title"))
+		fmt.Println(TF("usage_ver", Version, VersionDate))
 		fmt.Println()
 	}
 
 	// Проверка доступности TMDB API
 	tmdbAvailable := true
 
-	if tmdbErr != nil {
+	if err := tmdbClient.CheckAvailability(); err != nil {
 		tmdbAvailable = false
-		logger.Error("TMDB_API", fmt.Errorf("TMDB API отключено: %w", tmdbErr))
-	} else if err := tmdbClient.CheckAvailability(); err != nil {
-		tmdbAvailable = false
-		logger.Error("TMDB_API", fmt.Errorf("TMDB API недоступно: %w", err))
+		logger.Error("TMDB_API", fmt.Errorf(T("err_tmdb_unavail"), err))
 	}
 
 	if !*silentFlag {
-		fmt.Println("Источник:")
+		fmt.Println(T("source_dir"))
 		fmt.Println(source)
 
 		fmt.Println()
 
-		fmt.Println("Резервная копия:")
+		fmt.Println(T("backup_dir"))
 		fmt.Println(backup)
 
 		fmt.Println()
@@ -201,8 +203,8 @@ func main() {
 	}
 
 	if !*silentFlag {
-		fmt.Printf("Найдено NFO файлов: %d\n\n", len(files))
-		fmt.Println("Проверка и обработка файлов...")
+		fmt.Println(TF("nfo_found", len(files)))
+		fmt.Println(T("processing"))
 		fmt.Println()
 	}
 
@@ -329,16 +331,16 @@ func main() {
 		line := strings.Repeat("─", width-2)
 
 		fmt.Printf("┌%s┐\n", line)
-		fmt.Printf("│ %-36s │\n", "ИТОГИ ОБРАБОТКИ")
+		fmt.Printf("│ %-36s │\n", T("summary_title"))
 		fmt.Printf("├%s┤\n", line)
-		fmt.Printf("│ Всего файлов:     %-18d │\n", len(files))
-		fmt.Printf("│ Исправлено:       %-18d │\n", needFix)
-		fmt.Printf("│ Добавлена дата:   %-18d │\n", premieredAdded)
-		fmt.Printf("│ Пропущено:        %-18d │\n", skipped)
-		fmt.Printf("│ Резервных копий:  %-18d │\n", createdBackups)
+		fmt.Printf("│ %-18s %-17d │\n", T("total_files"), len(files))
+		fmt.Printf("│ %-18s %-17d │\n", T("fixed_files"), needFix)
+		fmt.Printf("│ %-18s %-17d │\n", T("premiered_added"), premieredAdded)
+		fmt.Printf("│ %-18s %-17d │\n", T("skipped_files"), skipped)
+		fmt.Printf("│ %-18s %-17d │\n", T("backups_created"), createdBackups)
 
 		if progress.errors > 0 {
-			fmt.Printf("│ Ошибок:           %-18d │\n", progress.errors)
+			fmt.Printf("│ %-18s %-17d │\n", T("error_count"), progress.errors)
 		}
 
 		fmt.Printf("└%s┘\n", line)
@@ -346,7 +348,7 @@ func main() {
 		fmt.Println()
 
 		if logger.HasChanged() || logger.HasSkipped() || logger.HasErrors() {
-			fmt.Println("Логи операций:")
+			fmt.Println(T("log_header_title"))
 
 			var activeLogs []string
 			if logger.HasChanged() {
@@ -367,7 +369,7 @@ func main() {
 				}
 			}
 		} else {
-			fmt.Println("Логи не создавались (нет записей).")
+			fmt.Println(T("no_logs_created"))
 		}
 
 		fmt.Println()
@@ -380,18 +382,18 @@ func main() {
 			if err := embyClient.TriggerLibraryScan(); err != nil {
 				logger.Error("EMBY_API", fmt.Errorf("не удалось запустить сканирование медиатеки: %w", err))
 				if !*silentFlag {
-					fmt.Println("⚠️ Не удалось запустить сканирование Emby (подробности в error.log)")
+					fmt.Println(T("emby_scan_error"))
 				}
 			} else {
 				if !*silentFlag {
-					fmt.Println("Запущено сканирование медиатеки Emby.")
-					fmt.Println("Cканирование займёт некоторое время. Пожалуйста, подождите.")
+					fmt.Println(T("emby_scan_started"))
+					fmt.Println(T("emby_scan_wait"))
 					fmt.Println()
 				}
 			}
 		} else {
 			if !*silentFlag {
-				fmt.Println("Файлы не изменялись, сканирование Emby пропущено.")
+				fmt.Println(T("emby_scan_skipped"))
 				fmt.Println()
 			}
 		}

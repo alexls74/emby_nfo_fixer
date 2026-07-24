@@ -49,16 +49,17 @@ release: build
 	@echo "📦 Упаковка релизов..."
 
 	# macOS Universal (.zip)
-	@zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_macOS_universal.zip ${BINARY_FOLDER}/MacOS/${BINARY_NAME} readme.html 2>/dev/null || \
+	@zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_macOS_universal.zip ${BINARY_FOLDER}/MacOS/${BINARY_NAME} readme.rus.html readme.eng.html 2>/dev/null || \
 		zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_macOS_universal.zip ${BINARY_FOLDER}/MacOS/${BINARY_NAME}
 
 	# Linux amd64 (.tar.gz)
-	@cp readme.html ${BINARY_FOLDER}/Linux/ 2>/dev/null || true
-	@COPYFILE_DISABLE=1 tar --exclude='._*' -czf ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_linux_amd64.tar.gz -C ${BINARY_FOLDER}/Linux ${BINARY_NAME} readme.html
-	@rm -f ${BINARY_FOLDER}/Linux/readme.html
+	@cp readme.rus.html readme.eng.html ${BINARY_FOLDER}/Linux/ 2>/dev/null || true
+	@COPYFILE_DISABLE=1 tar --exclude='._*' -czf ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_linux_amd64.tar.gz -C ${BINARY_FOLDER}/Linux ${BINARY_NAME} readme.rus.html readme.eng.html
+	@rm -f ${BINARY_FOLDER}/Linux/readme.rus.html
+	@rm -f ${BINARY_FOLDER}/Linux/readme.eng.html
 
 	# Windows x64 (.zip)
-	@zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_windows_x64.zip ${BINARY_FOLDER}/Windows/${BINARY_NAME}.exe readme.html 2>/dev/null || \
+	@zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_windows_x64.zip ${BINARY_FOLDER}/Windows/${BINARY_NAME}.exe readme.rus.html readme.eng.html 2>/dev/null || \
 		zip -j ${RELEASE_FOLDER}/${BINARY_NAME}_v${VERSION}_windows_x64.zip ${BINARY_FOLDER}/Windows/${BINARY_NAME}.exe
 
 	@echo "🎉 Готово! Все архивы сформированы в папке ${RELEASE_FOLDER}:"

@@ -21,7 +21,7 @@ type tmdbMovieResponse struct {
 func checkTokenValid(client *http.Client, token string) error {
 	req, err := http.NewRequest("GET", "https://api.themoviedb.org/3/movie/550", nil)
 	if err != nil {
-		return fmt.Errorf("ошибка создания запроса: %w", err)
+		return fmt.Errorf(T("err_tmdb_req_create"), err)
 	}
 
 	req.Header.Add("Authorization", "Bearer "+token)
@@ -29,12 +29,12 @@ func checkTokenValid(client *http.Client, token string) error {
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("сетевая ошибка при проверке: %w", err)
+		return fmt.Errorf(T("err_tmdb_network"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized {
-		return fmt.Errorf("недействительный токен (401 Unauthorized)")
+		return fmt.Errorf("%s", T("err_tmdb_401"))
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -61,14 +61,14 @@ func (c *TMDBClient) IsEnabled() bool {
 
 func (c *TMDBClient) CheckAvailability() error {
 	if !c.IsEnabled() {
-		return fmt.Errorf("токен TMDB не задан в файле %s", configFileName)
+		return fmt.Errorf(T("err_tmdb_no_token"), configFileName)
 	}
 	return checkTokenValid(c.httpClient, c.token)
 }
 
 func (c *TMDBClient) GetReleaseDate(tmdbID string) (string, error) {
 	if !c.IsEnabled() {
-		return "", fmt.Errorf("модуль TMDB отключен")
+		return "", fmt.Errorf("%s", T("err_tmdb_disabled"))
 	}
 
 	url := fmt.Sprintf("https://api.themoviedb.org/3/movie/%s", tmdbID)
@@ -88,20 +88,20 @@ func (c *TMDBClient) GetReleaseDate(tmdbID string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusNotFound {
-		return "", fmt.Errorf("фильм с TMDB ID %s не найден (404 Not Found)", tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_not_found"), tmdbID)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("TMDB API вернуло статус %d для ID %s", resp.StatusCode, tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_api_status"), resp.StatusCode, tmdbID)
 	}
 
 	var movieData tmdbMovieResponse
 	if err := json.NewDecoder(resp.Body).Decode(&movieData); err != nil {
-		return "", fmt.Errorf("ошибка декодирования ответа TMDB: %w", err)
+		return "", fmt.Errorf(T("err_tmdb_decode"), err)
 	}
 
 	if movieData.ReleaseDate == "" {
-		return "", fmt.Errorf("у фильма с TMDB ID %s отсутствует дата релиза в ответе API", tmdbID)
+		return "", fmt.Errorf(T("err_tmdb_no_release"), tmdbID)
 	}
 
 	return movieData.ReleaseDate, nil

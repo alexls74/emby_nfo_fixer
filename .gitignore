@@ -2,5 +2,5 @@ build/
 release/
 .vscode/
 .DS_Store
-emby_nfo_fixer.conf
-readme.html
+config.conf
+readme.*.html

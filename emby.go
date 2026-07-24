@@ -43,18 +43,18 @@ func NormalizeEmbyURL(rawURL string) string {
 // CheckServer проверяет сетевую доступность сервера Emby
 func (c *EmbyClient) CheckServer() error {
 	if c.serverURL == "" {
-		return fmt.Errorf("URL сервера Emby не указан")
+		return fmt.Errorf("%s", T("err_emby_no_url"))
 	}
 
 	checkURL := fmt.Sprintf("%s/emby/System/Info/Public", c.serverURL)
 	resp, err := c.httpClient.Get(checkURL)
 	if err != nil {
-		return fmt.Errorf("сервер Emby недоступен по адресу %s", c.serverURL)
+		return fmt.Errorf(T("err_emby_unavail"), c.serverURL)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("сервер Emby вернул код статуса %d", resp.StatusCode)
+		return fmt.Errorf(T("err_emby_status"), resp.StatusCode)
 	}
 
 	return nil
@@ -67,22 +67,22 @@ func (c *EmbyClient) CheckToken() error {
 	}
 
 	if c.apiKey == "" {
-		return fmt.Errorf("API ключ Emby не указан")
+		return fmt.Errorf("%s", T("err_emby_no_key"))
 	}
 
 	checkURL := fmt.Sprintf("%s/emby/System/Info?api_key=%s", c.serverURL, url.QueryEscape(c.apiKey))
 	resp, err := c.httpClient.Get(checkURL)
 	if err != nil {
-		return fmt.Errorf("ошибка при проверке API ключа Emby: %w", err)
+		return fmt.Errorf(T("err_emby_key_check"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
-		return fmt.Errorf("недействительный API ключ (код %d)", resp.StatusCode)
+		return fmt.Errorf(T("err_emby_invalid_key"), resp.StatusCode)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("неожиданный ответ сервера при проверке ключа (код %d)", resp.StatusCode)
+		return fmt.Errorf(T("err_emby_unexpected"), resp.StatusCode)
 	}
 
 	return nil
@@ -91,18 +91,18 @@ func (c *EmbyClient) CheckToken() error {
 // TriggerLibraryScan отправляет запрос на сканирование медиатеки
 func (c *EmbyClient) TriggerLibraryScan() error {
 	if c.serverURL == "" || c.apiKey == "" {
-		return fmt.Errorf("данные авторизации Emby не настроены")
+		return fmt.Errorf("%s", T("err_emby_scan_auth"))
 	}
 
 	scanURL := fmt.Sprintf("%s/emby/Library/Refresh?api_key=%s", c.serverURL, url.QueryEscape(c.apiKey))
 	resp, err := c.httpClient.Post(scanURL, "application/json", nil)
 	if err != nil {
-		return fmt.Errorf("ошибка отправки запроса на сканирование Emby: %w", err)
+		return fmt.Errorf(T("err_emby_scan_send"), err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusNoContent {
-		return fmt.Errorf("сервер Emby вернул код %d при запуске сканирования", resp.StatusCode)
+		return fmt.Errorf(T("err_emby_status"), resp.StatusCode)
 	}
 
 	return nil
@@ -117,63 +117,63 @@ func PromptForEmbyInteractive() (string, string) {
 
 	// 1. Ввод и проверка URL сервера
 	for {
-		fmt.Print("Введите URL сервера Emby (например, http://192.168.1.30:8096): ")
+		fmt.Print(T("enter_emby_url"))
 		input, _ := reader.ReadString('\n')
 		input = strings.TrimSpace(input)
 
 		if input == "" {
-			fmt.Println("Введён пустой адрес. Пропускаем настройку Emby.")
+			fmt.Println(T("empty_url_skip"))
 			return "", ""
 		}
 
 		serverURL = NormalizeEmbyURL(input)
 		client := NewEmbyClient(serverURL, "")
 
-		fmt.Print("Проверка подключения к серверу... ")
+		fmt.Print(T("checking_server"))
 		if err := client.CheckServer(); err != nil {
 			fmt.Printf("❌ Ошибка: %v\n", err)
 
-			fmt.Print("Попробовать ввести адрес снова? (Y/n): ")
+			fmt.Print(T("url_retry_prompt"))
 			retry, _ := reader.ReadString('\n')
 			retry = strings.ToLower(strings.TrimSpace(retry))
 
 			if retry == "n" || retry == "no" || retry == "н" || retry == "нет" {
-				fmt.Println("Настройка Emby отменена.")
+				fmt.Println(T("emby_canceled"))
 				return "", ""
 			}
 		} else {
-			fmt.Println("✅ Сервер найден!")
+			fmt.Println(T("server_found"))
 			break
 		}
 	}
 
 	// 2. Ввод и проверка API ключа
 	for {
-		fmt.Print("Введите API ключ Emby: ")
+		fmt.Print(T("enter_emby_api_key"))
 		input, _ := reader.ReadString('\n')
 		apiKey = strings.TrimSpace(input)
 
 		if apiKey == "" {
-			fmt.Println("Введён пустой ключ. Настройка Emby отменена.")
+			fmt.Println(T("empty_key_skip"))
 			return "", ""
 		}
 
 		client := NewEmbyClient(serverURL, apiKey)
 
-		fmt.Print("Проверка API ключа... ")
+		fmt.Print(T("checking_key"))
 		if err := client.CheckToken(); err != nil {
 			fmt.Printf("❌ Ошибка: %v\n", err)
 
-			fmt.Print("Попробовать ввести ключ снова? (Y/n): ")
+			fmt.Print(T("key_retry_prompt"))
 			retry, _ := reader.ReadString('\n')
 			retry = strings.ToLower(strings.TrimSpace(retry))
 
 			if retry == "n" || retry == "no" || retry == "н" || retry == "нет" {
-				fmt.Println("Настройка Emby отменена.")
+				fmt.Println(T("emby_canceled"))
 				return "", ""
 			}
 		} else {
-			fmt.Println("✅ API ключ подтверждён!")
+			fmt.Println(T("key_confirmed"))
 			break
 		}
 	}

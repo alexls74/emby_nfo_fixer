@@ -23,7 +23,8 @@ type Logger struct {
 func NewLogger(backupDir string) (*Logger, error) {
 	if err := os.MkdirAll(backupDir, 0755); err != nil {
 		return nil, fmt.Errorf(
-			"не удалось создать папку логов: %w",
+			"%s: %w",
+			T("err_create_log_dir"),
 			err,
 		)
 	}
@@ -36,19 +37,15 @@ func NewLogger(backupDir string) (*Logger, error) {
 }
 
 func (l *Logger) writeHeader(file *os.File) {
-	now := time.Now().Format(
-		"2006-01-02 15:04:05",
-	)
+	now := time.Now().Format("2006-01-02 15:04:05")
 
 	header := fmt.Sprintf(
-		"========== Начало работы: %s ==========\n\n",
+		"========== %s %s ==========\n\n",
+		T("log_header_title"),
 		now,
 	)
 
-	fmt.Fprint(
-		file,
-		header,
-	)
+	fmt.Fprint(file, header)
 }
 
 func (l *Logger) Skip(
@@ -70,10 +67,11 @@ func (l *Logger) Skip(
 
 	l.hasSkipped = true
 
+	// Явно передаем "%s" как константный формат
 	fmt.Fprintf(
 		l.skip,
-		"Пропущен:\n%s\nПричина: порядок тегов корректный, <premiered> присутствует\n\n",
-		file,
+		"%s",
+		TF("log_skip_reason", file),
 	)
 }
 
@@ -99,18 +97,17 @@ func (l *Logger) Changed(
 
 	var details []string
 	if movie.MovedCredits > 0 || movie.MovedDirectors > 0 {
-		details = append(details, fmt.Sprintf("Перемещено: credits: %d, director: %d", movie.MovedCredits, movie.MovedDirectors))
+		details = append(details, TF("log_moved_details", movie.MovedCredits, movie.MovedDirectors))
 	}
 	if movie.PremieredDate != "" {
-		details = append(details, fmt.Sprintf("Добавлен <premiered>: %s", movie.PremieredDate))
+		details = append(details, TF("log_added_date", movie.PremieredDate))
 	}
 
+	// Явно передаем "%s" как константный формат
 	fmt.Fprintf(
 		l.changed,
-		"Изменён:\n%s\nРезервная копия:\n%s\n%s\n\n",
-		source,
-		backup,
-		strings.Join(details, "\n"),
+		"%s",
+		TF("log_changed_title", source, backup, strings.Join(details, "\n")),
 	)
 }
 
@@ -137,9 +134,7 @@ func (l *Logger) Error(
 
 	l.hasErrors = true
 
-	now := time.Now().Format(
-		"2006-01-02 15:04:05",
-	)
+	now := time.Now().Format("2006-01-02 15:04:05")
 
 	fmt.Fprintf(
 		l.errors,

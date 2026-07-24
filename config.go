@@ -24,14 +24,41 @@ type Config struct {
 	Language   string // "ru" или "en"
 }
 
+// detectSystemLanguage определяет системный язык ОС
+func detectSystemLanguage() string {
+	var langEnv string
+
+	if runtime.GOOS == "windows" {
+		langEnv = os.Getenv("LANG")
+		if langEnv == "" {
+			langEnv = os.Getenv("LC_ALL")
+		}
+	} else {
+		langEnv = os.Getenv("LC_ALL")
+		if langEnv == "" {
+			langEnv = os.Getenv("LANG")
+		}
+		if langEnv == "" {
+			langEnv = os.Getenv("LC_MESSAGES")
+		}
+	}
+
+	langEnv = strings.ToLower(langEnv)
+
+	if strings.HasPrefix(langEnv, "en") {
+		return "en"
+	}
+
+	return "ru"
+}
+
 // GetConfigPath определяет путь к конфигурационному файлу
 func GetConfigPath() string {
 	var userDir string
 
 	if runtime.GOOS == "windows" {
-		userDir, _ = os.UserConfigDir() // %APPDATA%
+		userDir, _ = os.UserConfigDir()
 	} else {
-		// Для macOS и Linux используем ~/.config
 		home, err := os.UserHomeDir()
 		if err == nil {
 			userDir = filepath.Join(home, ".config")
@@ -43,14 +70,12 @@ func GetConfigPath() string {
 	targetDir := filepath.Join(userDir, configDirName)
 	targetPath := filepath.Join(targetDir, configFileName)
 
-	// Старый путь (рядом с исполняемым файлом)
 	execPath, err := os.Executable()
 	if err != nil {
 		execPath = "."
 	}
 	legacyPath := filepath.Join(filepath.Dir(execPath), legacyFileName)
 
-	// Если целевого файла НЕТ, но есть СТАРЫЙ — переносим
 	if _, err := os.Stat(targetPath); os.IsNotExist(err) {
 		if data, err := os.ReadFile(legacyPath); err == nil {
 			if err := os.MkdirAll(targetDir, 0755); err == nil {
@@ -67,9 +92,7 @@ func GetConfigPath() string {
 func LoadConfig() (*Config, error) {
 	configPath := GetConfigPath()
 
-	cfg := &Config{
-		Language: "ru",
-	}
+	cfg := &Config{}
 
 	file, err := os.Open(configPath)
 	if err != nil {
@@ -97,8 +120,11 @@ func LoadConfig() (*Config, error) {
 			case "EMBY_API_KEY":
 				cfg.EmbyApiKey = val
 			case "LANGUAGE":
-				if val == "en" || val == "ru" {
-					cfg.Language = val
+				valLower := strings.ToLower(val)
+				if valLower == "en" || valLower == "english" {
+					cfg.Language = "en"
+				} else if valLower == "ru" || valLower == "russian" {
+					cfg.Language = "ru"
 				}
 			}
 		}
@@ -119,7 +145,7 @@ func SaveConfig(cfg *Config) error {
 	}
 
 	if cfg.Language == "" {
-		cfg.Language = "ru"
+		cfg.Language = detectSystemLanguage()
 	}
 
 	content := fmt.Sprintf(
@@ -133,43 +159,70 @@ func SaveConfig(cfg *Config) error {
 	return os.WriteFile(configPath, []byte(content), 0644)
 }
 
-// promptForTMDBToken запрашивает TMDB токен в консоли
+func promptForLanguage() string {
+	reader := bufio.NewReader(os.Stdin)
+
+	defaultLang := detectSystemLanguage()
+	defaultChoice := "1"
+	if defaultLang == "en" {
+		defaultChoice = "2"
+	}
+
+	fmt.Println("Выберите язык интерфейса / Select interface language:")
+	fmt.Println("  1. Русский (ru)")
+	fmt.Println("  2. English (en)")
+	fmt.Printf("(по умолчанию %s, default %s): ", defaultChoice, defaultChoice)
+
+	input, _ := reader.ReadString('\n')
+	input = strings.TrimSpace(input)
+
+	if input == "" {
+		return defaultLang
+	}
+
+	if input == "2" || strings.ToLower(input) == "en" || strings.ToLower(input) == "english" {
+		return "en"
+	}
+
+	return "ru"
+}
+
 func promptForTMDBToken(httpClient *http.Client) string {
 	reader := bufio.NewReader(os.Stdin)
 
-	fmt.Print("Файл конфигурации не найден. Хотите настроить TMDB API токен сейчас? (y/N): ")
+	fmt.Print(T("ask_tmdb_token"))
 	answer, _ := reader.ReadString('\n')
 	answer = strings.ToLower(strings.TrimSpace(answer))
 
 	if answer != "y" && answer != "yes" && answer != "д" && answer != "да" {
-		fmt.Println("Интеграция с TMDB пропущена.")
+		fmt.Println(T("skip_tmdb"))
 		return ""
 	}
 
 	for {
-		fmt.Print("Введите TMDB API токен: ")
+		fmt.Print(T("enter_tmdb_token"))
 		token, _ := reader.ReadString('\n')
 		token = strings.TrimSpace(token)
 
 		if token == "" {
-			fmt.Println("Введён пустой токен. Пропускаем.")
+			fmt.Println(T("empty_token_skip"))
 			return ""
 		}
 
-		fmt.Print("Проверка токена... ")
+		fmt.Print(T("checking_token"))
 		if err := checkTokenValid(httpClient, token); err != nil {
 			fmt.Printf("❌ Ошибка: %v\n", err)
 
-			fmt.Print("Попробовать ввести снова? (Y/n): ")
+			fmt.Print(T("token_retry_prompt"))
 			retry, _ := reader.ReadString('\n')
 			retry = strings.ToLower(strings.TrimSpace(retry))
 
 			if retry == "n" || retry == "no" || retry == "н" || retry == "нет" {
-				fmt.Println("Интеграция с TMDB пропущена.")
+				fmt.Println(T("skip_tmdb"))
 				return ""
 			}
 		} else {
-			fmt.Println("✅ Токен успешно проверен!")
+			fmt.Println(T("token_success"))
 			return token
 		}
 	}
@@ -179,13 +232,21 @@ func promptForTMDBToken(httpClient *http.Client) string {
 func EnsureConfig() (*Config, error) {
 	configPath := GetConfigPath()
 
+	// 1. Мастер первичной настройки, если конфига вообще нет
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		lang := promptForLanguage()
+		SetLanguage(lang)
+		fmt.Println()
+
+		fmt.Println(T("config_not_found"))
+		fmt.Println()
+
 		httpClient := &http.Client{Timeout: 10 * time.Second}
 
 		token := promptForTMDBToken(httpClient)
 
 		var embyURL, embyKey string
-		fmt.Print("Хотите настроить автоматическое сканирование Emby? (y/N): ")
+		fmt.Print(T("ask_emby_setup"))
 		reader := bufio.NewReader(os.Stdin)
 		embyAns, _ := reader.ReadString('\n')
 		embyAns = strings.ToLower(strings.TrimSpace(embyAns))
@@ -198,7 +259,7 @@ func EnsureConfig() (*Config, error) {
 			TmdbToken:  token,
 			EmbyURL:    embyURL,
 			EmbyApiKey: embyKey,
-			Language:   "ru",
+			Language:   lang,
 		}
 
 		if saveErr := SaveConfig(cfg); saveErr != nil {
@@ -208,5 +269,18 @@ func EnsureConfig() (*Config, error) {
 		return cfg, nil
 	}
 
-	return LoadConfig()
+	// 2. Загружаем существующий конфиг
+	cfg, err := LoadConfig()
+	if err != nil {
+		return cfg, err
+	}
+
+	// 3. Если конфиг существует, но ключа LANGUAGE в нём не было — спрашиваем и дозаписываем
+	if cfg.Language == "" {
+		cfg.Language = promptForLanguage()
+		_ = SaveConfig(cfg) // сохраняем выбор в конфиг, чтобы не спрашивать снова
+		fmt.Println()
+	}
+
+	return cfg, nil
 }

@@ -39,8 +39,8 @@ func main() {
 			"  %-12s %s %s %s\n",
 			name,
 			"[OPTIONS]",
-			"[SOURCE]",
-			"[BACKUP]",
+			"<SOURCE>",
+			"<BACKUP>",
 		)
 
 		fmt.Println()

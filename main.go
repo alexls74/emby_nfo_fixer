@@ -91,7 +91,7 @@ func main() {
 
 		fmt.Println(T("usage_example"))
 		fmt.Printf(
-			"  %-12s [-e] [-s] /mnt/Movies /mnt/Backups\n",
+			"  %-12s -e /mnt/Movies /mnt/Backups\n",
 			name,
 		)
 
